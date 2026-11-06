@@ -1,0 +1,305 @@
+openapi: 3.0.3
+info:
+  title: Account Service API
+  description: Gestión de cuentas bancarias. Transferencias delegadas a Transaction Service.
+  version: 1.0.0
+
+tags:
+  - name: Account
+    description: Operaciones de gestión de cuentas bancarias
+
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/accounts:
+    get:
+      tags:
+        - Account
+      summary: Listar cuentas
+      operationId: findAllAccounts
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+      responses:
+        '200':
+          description: Lista paginada de cuentas
+          content: { application/json: { schema: { $ref: '#/components/schemas/AccountPage' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags:
+        - Account
+      summary: Crear cuenta bancaria
+      description: Idempotente mediante X-Transaction-ID.
+      operationId: createAccount
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+        - $ref: '#/components/parameters/TransactionIdHeader'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccountCreateRequest' } } }
+      responses:
+        '201':
+          description: Cuenta creada
+          content: { application/json: { schema: { $ref: '#/components/schemas/AccountResponse' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/accounts/{accountId}:
+    get:
+      tags:
+        - Account
+      summary: Obtener cuenta por ID
+      operationId: findAccountById
+      parameters:
+        - $ref: '#/components/parameters/AccountIdPath'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+      responses:
+        '200':
+          description: Detalle de la cuenta
+          content: { application/json: { schema: { $ref: '#/components/schemas/AccountResponse' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags:
+        - Account
+      summary: Actualizar cuenta (parcial)
+      operationId: updateAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountIdPath'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+        - $ref: '#/components/parameters/TransactionIdHeader'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccountUpdateRequest' } } }
+      responses:
+        '200':
+          description: Cuenta actualizada
+          content: { application/json: { schema: { $ref: '#/components/schemas/AccountResponse' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags:
+        - Account
+      summary: Baja lógica de cuenta (no permite borrar si hay saldo u obligaciones)
+      operationId: deactivateAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountIdPath'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+        - $ref: '#/components/parameters/TransactionIdHeader'
+      responses:
+        '204':
+          description: Cuenta desactivada
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/accounts/{accountId}/movements:
+    get:
+      tags:
+        - Account
+      summary: Consultar movimientos de una cuenta
+      operationId: findAccountMovements
+      parameters:
+        - $ref: '#/components/parameters/AccountIdPath'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+      responses:
+        '200':
+          description: Lista paginada de movimientos
+          content: { application/json: { schema: { $ref: '#/components/schemas/MovementPage' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/accounts/{accountId}/balance:
+    get:
+      tags:
+        - Account
+      summary: Consultar saldo disponible
+      operationId: findAccountBalance
+      parameters:
+        - $ref: '#/components/parameters/AccountIdPath'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+      responses:
+        '200':
+          description: Saldo de la cuenta
+          content: { application/json: { schema: { $ref: '#/components/schemas/BalanceResponse' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/accounts/transfers:
+    post:
+      tags:
+        - Account
+      summary: Transferencia entre cuentas (delegada a Transaction Service)
+      description: |
+        Idempotente mediante X-Transaction-ID. Este endpoint actúa como fachada y delega la orquestación real a Transaction Service. Devuelve un operationId; el resultado se consulta en GET /api/v1/transactions/{transactionId} de Transaction Service.
+        Reglas de validación:
+        - La cuenta origen debe estar ACTIVE y tener saldo suficiente.
+        - La cuenta destino debe existir y estar ACTIVE.
+        - No se permite transferir a la misma cuenta (sourceAccountId == targetAccountId -> 422).
+        - Si la cuenta origen está BLOCKED o INACTIVE, se rechaza con 409.
+      operationId: createTransfer
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+        - $ref: '#/components/parameters/ChannelIdHeader'
+        - $ref: '#/components/parameters/TransactionIdHeader'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TransferRequest' } } }
+      responses:
+        '202':
+          description: Transferencia aceptada para procesamiento
+          content: { application/json: { schema: { $ref: '#/components/schemas/OperationAcceptedResponse' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+components:
+  securitySchemes:
+    BearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    PageParam: { name: page, in: query, schema: { type: integer, default: 0, minimum: 0 } }
+    SizeParam: { name: size, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+    CorrelationIdHeader: { name: X-Correlation-ID, in: header, required: true, schema: { type: string } }
+    ChannelIdHeader: { name: X-Channel-ID, in: header, required: true, schema: { type: string } }
+    TransactionIdHeader: { name: X-Transaction-ID, in: header, required: true, schema: { type: string, format: uuid } }
+    AccountIdPath: { name: accountId, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    AccountType: { type: string, enum: [SAVINGS, CHECKING, FIXED_TERM] }
+    AccountProfile: { type: string, enum: [STANDARD, VIP, PYME] }
+    AccountStatus: { type: string, enum: [ACTIVE, INACTIVE, BLOCKED] }
+    AccountCreateRequest:
+      type: object
+      required: [customerId, accountType, profile, currency]
+      properties:
+        customerId: { type: string, format: uuid }
+        accountType: { $ref: '#/components/schemas/AccountType' }
+        profile: { $ref: '#/components/schemas/AccountProfile' }
+        initialAmount: { type: string, pattern: '^[0-9]+(\.[0-9]{1,2})?$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$', example: PEN }
+        holders:
+          type: array
+          items: { type: string, format: uuid }
+        signers:
+          type: array
+          items: { type: string, format: uuid }
+    AccountUpdateRequest:
+      type: object
+      properties:
+        profile: { $ref: '#/components/schemas/AccountProfile' }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+    AccountResponse:
+      type: object
+      required: [id, customerId, accountType, profile, status, balance, currency]
+      properties:
+        id: { type: string, format: uuid }
+        accountNumber: { type: string }
+        customerId: { type: string, format: uuid }
+        accountType: { $ref: '#/components/schemas/AccountType' }
+        profile: { $ref: '#/components/schemas/AccountProfile' }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        balance: { type: string }
+        currency: { type: string }
+        createdAt: { type: string, format: date-time }
+    AccountPage:
+      type: object
+      properties:
+        content: { type: array, items: { $ref: '#/components/schemas/AccountResponse' } }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer }
+    MovementResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        type: { type: string, enum: [DEPOSIT, WITHDRAWAL, TRANSFER_IN, TRANSFER_OUT] }
+        amount: { type: string }
+        balanceAfter: { type: string }
+        timestamp: { type: string, format: date-time }
+    MovementPage:
+      type: object
+      properties:
+        content: { type: array, items: { $ref: '#/components/schemas/MovementResponse' } }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer }
+    BalanceResponse:
+      type: object
+      properties:
+        accountId: { type: string, format: uuid }
+        availableBalance: { type: string }
+        currency: { type: string }
+        lastUpdated: { type: string, format: date-time }
+    TransferRequest:
+      type: object
+      required: [sourceAccountId, targetAccountId, amount, currency]
+      properties:
+        sourceAccountId: { type: string, format: uuid }
+        targetAccountId: { type: string, format: uuid }
+        amount: { type: string, pattern: '^(?!0+(\.0+)?$)[0-9]+(\.[0-9]{1,2})?$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        description: { type: string }
+    OperationAcceptedResponse:
+      type: object
+      properties:
+        operationId: { type: string, format: uuid }
+        status: { type: string, enum: [ACCEPTED, PENDING] }
+        message: { type: string }
+    ErrorResponse:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+        timestamp: { type: string, format: date-time }
+        correlationId: { type: string }
+        details: { type: array, items: { type: string } }
+  responses:
+    BadRequest:
+      description: Solicitud inválida
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Unauthorized:
+      description: No autenticado
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Forbidden:
+      description: No autorizado
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    NotFound:
+      description: Recurso no encontrado
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Conflict:
+      description: Conflicto de negocio
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    UnprocessableEntity:
+      description: Entidad no procesable (reglas de negocio)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    InternalServerError:
+      description: Error interno
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
