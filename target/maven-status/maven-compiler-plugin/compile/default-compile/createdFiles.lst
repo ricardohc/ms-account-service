@@ -40,6 +40,7 @@ com\banking\account\controller\AccountApiImpl.class
 com\banking\account\dto\MovementResponse$TypeEnum.class
 com\banking\account\dto\AccountCreateRequest.class
 com\banking\account\service\CardVerificationClient.class
+com\banking\account\exception\DependencyUnavailableException.class
 com\banking\account\config\AccountProperties$MinimumOpening.class
 com\banking\account\api\AccountApi.class
 com\banking\account\dto\AccountUpdateRequest.class

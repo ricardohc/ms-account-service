@@ -5,6 +5,7 @@ import com.banking.account.document.AccountDocument;
 import com.banking.account.document.MovementDocument;
 import com.banking.account.dto.AccountCreateRequest;
 import com.banking.account.dto.AccountPage;
+import com.banking.account.dto.AccountProfile;
 import com.banking.account.dto.AccountResponse;
 import com.banking.account.dto.AccountStatus;
 import com.banking.account.dto.AccountType;
@@ -22,271 +23,261 @@ import com.banking.account.mapper.AccountMapper;
 import com.banking.account.repository.AccountRepository;
 import com.banking.account.repository.MovementRepository;
 import com.banking.account.service.AccountService;
-import com.banking.account.service.CardVerificationClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
-<span class="fc" id="L44">@Slf4j</span>
+<span class="fc" id="L40">@Slf4j</span>
 @Service
-<span class="fc" id="L46">@RequiredArgsConstructor</span>
+<span class="fc" id="L42">@RequiredArgsConstructor</span>
 public class AccountServiceImpl implements AccountService {
 
     private final AccountRepository accountRepository;
     private final MovementRepository movementRepository;
     private final AccountMapper mapper;
     private final AccountProperties properties;
-    private final CardVerificationClient cardVerificationClient;
     private final AccountEventPublisher eventPublisher;
     private final TransferFacade transferFacade;
     private final ObjectMapper objectMapper;
 
     @Override
     public Mono&lt;AccountResponse&gt; create(AccountCreateRequest request, String transactionId) {
-<span class="fc" id="L60">        return validateCreationRules(request)</span>
-<span class="fc" id="L61">                .then(generateAccountNumber(request.getCurrency()))</span>
-<span class="fc" id="L62">                .map(accountNumber -&gt; buildDocument(request, accountNumber))</span>
-<span class="fc" id="L63">                .flatMap(accountRepository::save)</span>
-<span class="fc" id="L64">                .flatMap(saved -&gt; registerOpeningMovementIfAny(saved, request)</span>
-<span class="fc" id="L65">                        .then(publishEvent(&quot;AccountCreated&quot;, saved))</span>
-<span class="fc" id="L66">                        .thenReturn(mapper.toResponse(saved)));</span>
+<span class="fc" id="L55">        return validateCreationRules(request)</span>
+<span class="fc" id="L56">                .then(generateAccountNumber(request.getCurrency()))</span>
+<span class="fc" id="L57">                .map(accountNumber -&gt; buildDocument(request, accountNumber))</span>
+<span class="fc" id="L58">                .flatMap(accountRepository::save)</span>
+<span class="fc" id="L59">                .flatMap(saved -&gt; registerOpeningMovementIfAny(saved, request)</span>
+<span class="fc" id="L60">                        .then(publishEvent(&quot;AccountCreated&quot;, saved))</span>
+<span class="fc" id="L61">                        .thenReturn(mapper.toResponse(saved)));</span>
     }
 
     private Mono&lt;Void&gt; validateCreationRules(AccountCreateRequest request) {
-<span class="fc" id="L70">        AccountType type = request.getAccountType();</span>
-<span class="fc" id="L71">        com.banking.account.dto.AccountProfile profile = request.getProfile();</span>
+<span class="fc" id="L65">        AccountType type = request.getAccountType();</span>
+<span class="fc" id="L66">        AccountProfile profile = request.getProfile();</span>
 
-<span class="fc" id="L73">        Mono&lt;Void&gt; businessRules = Mono.defer(() -&gt; {</span>
-<span class="pc bpc" id="L74" title="1 of 4 branches missed.">            if (type == AccountType.SAVINGS || type == AccountType.FIXED_TERM) {</span>
-<span class="fc bfc" id="L75" title="All 2 branches covered.">                if (profile == com.banking.account.dto.AccountProfile.PYME) {</span>
-<span class="fc" id="L76">                    return Mono.error(new UnprocessableEntityException(</span>
-                            &quot;PYME profile only allows CHECKING accounts&quot;));
+<span class="fc" id="L68">        Mono&lt;Void&gt; accountLimitRules = Mono.defer(() -&gt; {</span>
+<span class="fc bfc" id="L69" title="All 2 branches covered.">            boolean isBusiness = profile == AccountProfile.PYME;</span>
+
+<span class="fc bfc" id="L71" title="All 2 branches covered.">            if (isBusiness) {</span>
+                // PYME solo puede tener cuentas CHECKING (múltiples)
+<span class="pc bpc" id="L73" title="1 of 2 branches missed.">                if (type != AccountType.CHECKING) {</span>
+<span class="fc" id="L74">                    return Mono.&lt;Void&gt;error(new ConflictException(</span>
+                            &quot;BUSINESS customer is not allowed to create SAVINGS or FIXED_TERM accounts, only multiple CHECKING accounts&quot;));
                 }
+<span class="nc" id="L77">                return Mono.&lt;Void&gt;empty();</span>
+            } else {
+                // VIP / STANDARD: 1 cuenta por tipo
+<span class="fc" id="L80">                return accountRepository.findByCustomerIdAndAccountType(</span>
+<span class="fc" id="L81">                                request.getCustomerId(), type.name())</span>
+<span class="fc" id="L82">                        .next()</span>
+<span class="fc" id="L83">                        .flatMap(existingAccount -&gt; Mono.&lt;Void&gt;error(new ConflictException(</span>
+<span class="fc" id="L84">                                &quot;PERSONAL customer already has a &quot; + type.name() + &quot; account with id: &quot; + existingAccount.getId())))</span>
+<span class="fc" id="L85">                        .switchIfEmpty(Mono.&lt;Void&gt;empty());</span>
             }
-<span class="pc bpc" id="L80" title="1 of 2 branches missed.">            if (request.getInitialAmount() != null) {</span>
-<span class="nc" id="L81">                BigDecimal min = minimumOpening(profile);</span>
-<span class="nc bnc" id="L82" title="All 2 branches missed.">                if (new BigDecimal(request.getInitialAmount()).compareTo(min) &lt; 0) {</span>
-<span class="nc" id="L83">                    return Mono.error(new UnprocessableEntityException(</span>
+        });
+
+<span class="fc" id="L89">        Mono&lt;Void&gt; businessRules = Mono.defer(() -&gt; {</span>
+<span class="pc bpc" id="L90" title="1 of 2 branches missed.">            if (request.getInitialAmount() != null) {</span>
+<span class="nc" id="L91">                BigDecimal min = minimumOpening(profile);</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">                if (new BigDecimal(request.getInitialAmount()).compareTo(min) &lt; 0) {</span>
+<span class="nc" id="L93">                    return Mono.&lt;Void&gt;error(new UnprocessableEntityException(</span>
                             &quot;Initial amount below configured minimum opening amount &quot; + min));
                 }
             }
-<span class="fc bfc" id="L87" title="All 4 branches covered.">            if (profile == com.banking.account.dto.AccountProfile.VIP</span>
-                    || profile == com.banking.account.dto.AccountProfile.PYME) {
-<span class="fc" id="L89">                return cardVerificationClient.hasCreditCard(request.getCustomerId())</span>
-<span class="fc bfc" id="L90" title="All 2 branches covered.">                        .flatMap(has -&gt; Boolean.TRUE.equals(has) ? Mono.empty()</span>
-<span class="fc" id="L91">                                : Mono.error(new UnprocessableEntityException(</span>
-                                &quot;Profile &quot; + profile + &quot; requires a bank credit card&quot;)));
-            }
-<span class="fc" id="L94">            return Mono.empty();</span>
+            // Se ha removido la validación de tarjeta de crédito para evitar dependencias externas al crear cuentas
+<span class="fc" id="L98">            return Mono.&lt;Void&gt;empty();</span>
         });
 
-<span class="fc" id="L97">        Mono&lt;Void&gt; typeRules = Mono.defer(() -&gt; {</span>
-<span class="pc bpc" id="L98" title="1 of 2 branches missed.">            if (type == AccountType.SAVINGS) {</span>
-<span class="fc" id="L99">                return accountRepository.findByCustomerIdAndAccountType(</span>
-<span class="fc" id="L100">                                request.getCustomerId(), AccountType.SAVINGS.name())</span>
-<span class="fc" id="L101">                        .hasElements()</span>
-<span class="fc bfc" id="L102" title="All 2 branches covered.">                        .flatMap(exists -&gt; exists</span>
-<span class="fc" id="L103">                                ? Mono.error(new ConflictException(</span>
-                                &quot;PERSONAL customer already has a SAVINGS account&quot;))
-<span class="fc" id="L105">                                : Mono.empty());</span>
-            }
-<span class="nc" id="L107">            return Mono.empty();</span>
-        });
-
-<span class="fc" id="L110">        return businessRules.then(typeRules);</span>
+<span class="fc" id="L101">        return accountLimitRules.then(businessRules);</span>
     }
 
-    private BigDecimal minimumOpening(com.banking.account.dto.AccountProfile profile) {
-<span class="nc" id="L114">        AccountProperties.MinimumOpening min = properties.getMinimumOpeningAmount();</span>
-<span class="nc bnc" id="L115" title="All 3 branches missed.">        return switch (profile) {</span>
-<span class="nc" id="L116">            case VIP -&gt; min.getVip();</span>
-<span class="nc" id="L117">            case PYME -&gt; min.getPyme();</span>
-<span class="nc" id="L118">            default -&gt; min.getStandard();</span>
+    private BigDecimal minimumOpening(AccountProfile profile) {
+<span class="nc" id="L105">        AccountProperties.MinimumOpening min = properties.getMinimumOpeningAmount();</span>
+<span class="nc bnc" id="L106" title="All 3 branches missed.">        return switch (profile) {</span>
+<span class="nc" id="L107">            case VIP -&gt; min.getVip();</span>
+<span class="nc" id="L108">            case PYME -&gt; min.getPyme();</span>
+<span class="nc" id="L109">            default -&gt; min.getStandard();</span>
         };
     }
 
     private AccountDocument buildDocument(AccountCreateRequest request, String accountNumber) {
-<span class="fc" id="L123">        return AccountDocument.builder()</span>
-<span class="fc" id="L124">                .id(UUID.randomUUID())</span>
-<span class="fc" id="L125">                .accountNumber(accountNumber)</span>
-<span class="fc" id="L126">                .customerId(request.getCustomerId())</span>
-<span class="fc" id="L127">                .accountType(request.getAccountType().name())</span>
-<span class="fc" id="L128">                .profile(request.getProfile().name())</span>
-<span class="fc" id="L129">                .status(AccountStatus.ACTIVE.name())</span>
-<span class="pc bpc" id="L130" title="1 of 2 branches missed.">                .balance(request.getInitialAmount() == null</span>
-<span class="pc" id="L131">                        ? BigDecimal.ZERO : new BigDecimal(request.getInitialAmount()))</span>
-<span class="fc" id="L132">                .currency(request.getCurrency())</span>
-<span class="pc bpc" id="L133" title="1 of 2 branches missed.">                .holders(request.getHolders() == null ? List.of() : request.getHolders())</span>
-<span class="pc bpc" id="L134" title="1 of 2 branches missed.">                .signers(request.getSigners() == null ? List.of() : request.getSigners())</span>
-<span class="fc" id="L135">                .monthlyMovements(0)</span>
-<span class="fc" id="L136">                .monthlyMovementsMonth(AccountDocument.currentMonth())</span>
-<span class="fc" id="L137">                .createdAt(Instant.now())</span>
-<span class="fc" id="L138">                .build();</span>
+<span class="fc" id="L114">        return AccountDocument.builder()</span>
+<span class="fc" id="L115">                .id(UUID.randomUUID())</span>
+<span class="fc" id="L116">                .accountNumber(accountNumber)</span>
+<span class="fc" id="L117">                .customerId(request.getCustomerId())</span>
+<span class="fc" id="L118">                .accountType(request.getAccountType().name())</span>
+<span class="fc" id="L119">                .profile(request.getProfile().name())</span>
+<span class="fc" id="L120">                .status(AccountStatus.ACTIVE.name())</span>
+<span class="pc bpc" id="L121" title="1 of 2 branches missed.">                .balance(request.getInitialAmount() == null</span>
+<span class="pc" id="L122">                        ? BigDecimal.ZERO : new BigDecimal(request.getInitialAmount()))</span>
+<span class="fc" id="L123">                .currency(request.getCurrency())</span>
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">                .holders(request.getHolders() == null ? List.of() : request.getHolders())</span>
+<span class="pc bpc" id="L125" title="1 of 2 branches missed.">                .signers(request.getSigners() == null ? List.of() : request.getSigners())</span>
+<span class="fc" id="L126">                .monthlyMovements(0)</span>
+<span class="fc" id="L127">                .monthlyMovementsMonth(AccountDocument.currentMonth())</span>
+<span class="fc" id="L128">                .createdAt(Instant.now())</span>
+<span class="fc" id="L129">                .build();</span>
     }
 
     private Mono&lt;String&gt; generateAccountNumber(String currency) {
-<span class="fc" id="L142">        return Mono.fromSupplier(() -&gt; {</span>
-<span class="fc" id="L143">            String number = String.format(&quot;%s-%013d&quot;,</span>
-<span class="pc bpc" id="L144" title="1 of 2 branches missed.">                    currency.equals(&quot;USD&quot;) ? &quot;002&quot; : &quot;001&quot;,</span>
-<span class="fc" id="L145">                    Math.abs(UUID.randomUUID().getLeastSignificantBits()) % 10_000_000_000_000L);</span>
-<span class="fc" id="L146">            return number;</span>
+<span class="fc" id="L133">        return Mono.fromSupplier(() -&gt; {</span>
+<span class="fc" id="L134">            String number = String.format(&quot;%s-%013d&quot;,</span>
+<span class="pc bpc" id="L135" title="1 of 2 branches missed.">                    currency.equals(&quot;USD&quot;) ? &quot;002&quot; : &quot;001&quot;,</span>
+<span class="fc" id="L136">                    Math.abs(UUID.randomUUID().getLeastSignificantBits()) % 10_000_000_000_000L);</span>
+<span class="fc" id="L137">            return number;</span>
         });
     }
 
     private Mono&lt;Void&gt; registerOpeningMovementIfAny(AccountDocument account,
                                                     AccountCreateRequest request) {
-<span class="pc bpc" id="L152" title="1 of 2 branches missed.">        if (request.getInitialAmount() == null</span>
-<span class="nc bnc" id="L153" title="All 2 branches missed.">                || new BigDecimal(request.getInitialAmount()).compareTo(BigDecimal.ZERO) == 0) {</span>
-<span class="fc" id="L154">            return Mono.empty();</span>
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">        if (request.getInitialAmount() == null</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">                || new BigDecimal(request.getInitialAmount()).compareTo(BigDecimal.ZERO) == 0) {</span>
+<span class="fc" id="L145">            return Mono.empty();</span>
         }
-<span class="nc" id="L156">        MovementDocument movement = MovementDocument.builder()</span>
-<span class="nc" id="L157">                .id(UUID.randomUUID())</span>
-<span class="nc" id="L158">                .accountId(account.getId())</span>
-<span class="nc" id="L159">                .type(&quot;DEPOSIT&quot;)</span>
-<span class="nc" id="L160">                .amount(new BigDecimal(request.getInitialAmount()))</span>
-<span class="nc" id="L161">                .balanceAfter(account.getBalance())</span>
-<span class="nc" id="L162">                .timestamp(Instant.now())</span>
-<span class="nc" id="L163">                .build();</span>
-<span class="nc" id="L164">        return movementRepository.save(movement).then();</span>
+<span class="nc" id="L147">        MovementDocument movement = MovementDocument.builder()</span>
+<span class="nc" id="L148">                .id(UUID.randomUUID())</span>
+<span class="nc" id="L149">                .accountId(account.getId())</span>
+<span class="nc" id="L150">                .type(&quot;DEPOSIT&quot;)</span>
+<span class="nc" id="L151">                .amount(new BigDecimal(request.getInitialAmount()))</span>
+<span class="nc" id="L152">                .balanceAfter(account.getBalance())</span>
+<span class="nc" id="L153">                .timestamp(Instant.now())</span>
+<span class="nc" id="L154">                .build();</span>
+<span class="nc" id="L155">        return movementRepository.save(movement).then();</span>
     }
 
     private Mono&lt;Void&gt; publishEvent(String eventType, AccountDocument account) {
-<span class="fc" id="L168">        return Mono.fromRunnable(() -&gt; {</span>
+<span class="fc" id="L159">        return Mono.fromRunnable(() -&gt; {</span>
             try {
-<span class="fc" id="L170">                String payload = objectMapper.writeValueAsString(java.util.Map.of(</span>
+<span class="fc" id="L161">                String payload = objectMapper.writeValueAsString(java.util.Map.of(</span>
                         &quot;eventType&quot;, eventType,
-<span class="fc" id="L172">                        &quot;accountId&quot;, String.valueOf(account.getId()),</span>
-<span class="fc" id="L173">                        &quot;customerId&quot;, String.valueOf(account.getCustomerId()),</span>
-<span class="fc" id="L174">                        &quot;accountType&quot;, account.getAccountType()));</span>
-<span class="fc" id="L175">                eventPublisher.publish(eventType, payload);</span>
-<span class="nc" id="L176">            } catch (Exception ex) {</span>
-<span class="nc" id="L177">                log.warn(&quot;No se pudo serializar evento {}: {}&quot;, eventType, ex.getMessage());</span>
-<span class="fc" id="L178">            }</span>
-<span class="fc" id="L179">        });</span>
+<span class="fc" id="L163">                        &quot;accountId&quot;, String.valueOf(account.getId()),</span>
+<span class="fc" id="L164">                        &quot;customerId&quot;, String.valueOf(account.getCustomerId()),</span>
+<span class="fc" id="L165">                        &quot;accountType&quot;, account.getAccountType()));</span>
+<span class="fc" id="L166">                eventPublisher.publish(eventType, payload);</span>
+<span class="nc" id="L167">            } catch (Exception ex) {</span>
+<span class="nc" id="L168">                log.warn(&quot;No se pudo serializar evento {}: {}&quot;, eventType, ex.getMessage());</span>
+<span class="fc" id="L169">            }</span>
+<span class="fc" id="L170">        });</span>
     }
 
     @Override
     public Mono&lt;AccountResponse&gt; findById(UUID accountId) {
-<span class="nc" id="L184">        return accountRepository.findById(accountId)</span>
-<span class="nc" id="L185">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
-<span class="nc" id="L186">                .map(mapper::toResponse);</span>
+<span class="nc" id="L175">        return accountRepository.findById(accountId)</span>
+<span class="nc" id="L176">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
+<span class="nc" id="L177">                .map(mapper::toResponse);</span>
     }
 
     @Override
     public Mono&lt;AccountResponse&gt; update(UUID accountId, AccountUpdateRequest request) {
-<span class="nc" id="L191">        return accountRepository.findById(accountId)</span>
-<span class="nc" id="L192">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
-<span class="nc" id="L193">                .map(account -&gt; {</span>
-<span class="nc bnc" id="L194" title="All 2 branches missed.">                    if (request.getProfile() != null) {</span>
-<span class="nc" id="L195">                        account.setProfile(request.getProfile().name());</span>
+<span class="nc" id="L182">        return accountRepository.findById(accountId)</span>
+<span class="nc" id="L183">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
+<span class="nc" id="L184">                .map(account -&gt; {</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                    if (request.getProfile() != null) {</span>
+<span class="nc" id="L186">                        account.setProfile(request.getProfile().name());</span>
                     }
-<span class="nc bnc" id="L197" title="All 2 branches missed.">                    if (request.getStatus() != null) {</span>
-<span class="nc" id="L198">                        account.setStatus(request.getStatus().name());</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">                    if (request.getStatus() != null) {</span>
+<span class="nc" id="L189">                        account.setStatus(request.getStatus().name());</span>
                     }
-<span class="nc" id="L200">                    return account;</span>
+<span class="nc" id="L191">                    return account;</span>
                 })
-<span class="nc" id="L202">                .flatMap(accountRepository::save)</span>
-<span class="nc" id="L203">                .flatMap(saved -&gt; publishEvent(&quot;AccountUpdated&quot;, saved)</span>
-<span class="nc" id="L204">                        .thenReturn(mapper.toResponse(saved)));</span>
+<span class="nc" id="L193">                .flatMap(accountRepository::save)</span>
+<span class="nc" id="L194">                .flatMap(saved -&gt; publishEvent(&quot;AccountUpdated&quot;, saved)</span>
+<span class="nc" id="L195">                        .thenReturn(mapper.toResponse(saved)));</span>
     }
 
     @Override
     public Mono&lt;Void&gt; deactivate(UUID accountId) {
-<span class="nc" id="L209">        return accountRepository.findById(accountId)</span>
-<span class="nc" id="L210">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
-<span class="nc" id="L211">                .flatMap(account -&gt; {</span>
-<span class="nc bnc" id="L212" title="All 2 branches missed.">                    if (account.getBalance() != null</span>
-<span class="nc bnc" id="L213" title="All 2 branches missed.">                            &amp;&amp; account.getBalance().compareTo(BigDecimal.ZERO) != 0) {</span>
-<span class="nc" id="L214">                        return Mono.error(new ConflictException(</span>
+<span class="nc" id="L200">        return accountRepository.findById(accountId)</span>
+<span class="nc" id="L201">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
+<span class="nc" id="L202">                .flatMap(account -&gt; {</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                    if (account.getBalance() != null</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                            &amp;&amp; account.getBalance().compareTo(BigDecimal.ZERO) != 0) {</span>
+<span class="nc" id="L205">                        return Mono.&lt;Void&gt;error(new ConflictException(</span>
                                 &quot;Cannot deactivate an account with a non-zero balance&quot;));
                     }
-<span class="nc" id="L217">                    account.setStatus(AccountStatus.INACTIVE.name());</span>
-<span class="nc" id="L218">                    return accountRepository.save(account)</span>
-<span class="nc" id="L219">                            .flatMap(saved -&gt; publishEvent(&quot;AccountDeactivated&quot;, saved))</span>
-<span class="nc" id="L220">                            .then();</span>
+<span class="nc" id="L208">                    account.setStatus(AccountStatus.INACTIVE.name());</span>
+<span class="nc" id="L209">                    return accountRepository.save(account)</span>
+<span class="nc" id="L210">                            .flatMap(saved -&gt; publishEvent(&quot;AccountDeactivated&quot;, saved))</span>
+<span class="nc" id="L211">                            .then();</span>
                 });
     }
 
     @Override
     public Mono&lt;MovementPage&gt; findMovements(UUID accountId, int page, int size) {
-<span class="nc" id="L226">        return accountRepository.existsById(accountId)</span>
-<span class="nc" id="L227">                .flatMap(exists -&gt; {</span>
-<span class="nc bnc" id="L228" title="All 2 branches missed.">                    if (!exists) {</span>
-<span class="nc" id="L229">                        return Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId));</span>
+<span class="nc" id="L217">        return accountRepository.existsById(accountId)</span>
+<span class="nc" id="L218">                .flatMap(exists -&gt; {</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">                    if (!exists) {</span>
+<span class="nc" id="L220">                        return Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId));</span>
                     }
-<span class="nc" id="L231">                    Pageable pageable = PageRequest.of(page, size);</span>
-<span class="nc" id="L232">                    Mono&lt;List&lt;MovementResponse&gt;&gt; content =</span>
-<span class="nc" id="L233">                            movementRepository.findByAccountIdOrderByTimestampDesc(accountId, pageable)</span>
-<span class="nc" id="L234">                                    .map(mapper::toResponse)</span>
-<span class="nc" id="L235">                                    .collectList();</span>
-<span class="nc" id="L236">                    Mono&lt;Long&gt; total = movementRepository.countByAccountId(accountId);</span>
-<span class="nc" id="L237">                    return Mono.zip(content, total)</span>
-<span class="nc" id="L238">                            .map(tuple -&gt; {</span>
-<span class="nc" id="L239">                                MovementPage movementPage = new MovementPage();</span>
-<span class="nc" id="L240">                                movementPage.setContent(tuple.getT1());</span>
-<span class="nc" id="L241">                                movementPage.setPage(page);</span>
-<span class="nc" id="L242">                                movementPage.setSize(size);</span>
-<span class="nc" id="L243">                                movementPage.setTotalElements(tuple.getT2().intValue());</span>
-<span class="nc" id="L244">                                return movementPage;</span>
+<span class="nc" id="L222">                    Pageable pageable = PageRequest.of(page, size);</span>
+<span class="nc" id="L223">                    Mono&lt;List&lt;MovementResponse&gt;&gt; content =</span>
+<span class="nc" id="L224">                            movementRepository.findByAccountIdOrderByTimestampDesc(accountId, pageable)</span>
+<span class="nc" id="L225">                                    .map(mapper::toResponse)</span>
+<span class="nc" id="L226">                                    .collectList();</span>
+<span class="nc" id="L227">                    Mono&lt;Long&gt; total = movementRepository.countByAccountId(accountId);</span>
+<span class="nc" id="L228">                    return Mono.zip(content, total)</span>
+<span class="nc" id="L229">                            .map(tuple -&gt; {</span>
+<span class="nc" id="L230">                                MovementPage movementPage = new MovementPage();</span>
+<span class="nc" id="L231">                                movementPage.setContent(tuple.getT1());</span>
+<span class="nc" id="L232">                                movementPage.setPage(page);</span>
+<span class="nc" id="L233">                                movementPage.setSize(size);</span>
+<span class="nc" id="L234">                                movementPage.setTotalElements(tuple.getT2().intValue());</span>
+<span class="nc" id="L235">                                return movementPage;</span>
                             });
                 });
     }
 
     @Override
     public Mono&lt;BalanceResponse&gt; findBalance(UUID accountId) {
-<span class="nc" id="L251">        return accountRepository.findById(accountId)</span>
-<span class="nc" id="L252">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
-<span class="nc" id="L253">                .map(account -&gt; {</span>
-<span class="nc" id="L254">                    BalanceResponse response = new BalanceResponse();</span>
-<span class="nc" id="L255">                    response.setAccountId(account.getId());</span>
-<span class="nc bnc" id="L256" title="All 2 branches missed.">                    response.setAvailableBalance(account.getBalance() == null</span>
-<span class="nc" id="L257">                            ? &quot;0.00&quot; : account.getBalance().toPlainString());</span>
-<span class="nc" id="L258">                    response.setCurrency(account.getCurrency());</span>
-<span class="nc bnc" id="L259" title="All 2 branches missed.">                    response.setLastUpdated(account.getCreatedAt() == null</span>
-<span class="nc" id="L260">                            ? OffsetDateTimeMin()</span>
-<span class="nc" id="L261">                            : java.time.OffsetDateTime.ofInstant(account.getCreatedAt(), ZoneOffset.UTC));</span>
-<span class="nc" id="L262">                    return response;</span>
+<span class="nc" id="L242">        return accountRepository.findById(accountId)</span>
+<span class="nc" id="L243">                .switchIfEmpty(Mono.error(new NotFoundException(&quot;Account not found: &quot; + accountId)))</span>
+<span class="nc" id="L244">                .map(account -&gt; {</span>
+<span class="nc" id="L245">                    BalanceResponse response = new BalanceResponse();</span>
+<span class="nc" id="L246">                    response.setAccountId(account.getId());</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">                    response.setAvailableBalance(account.getBalance() == null</span>
+<span class="nc" id="L248">                            ? &quot;0.00&quot; : account.getBalance().toPlainString());</span>
+<span class="nc" id="L249">                    response.setCurrency(account.getCurrency());</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">                    response.setLastUpdated(account.getCreatedAt() == null</span>
+<span class="nc" id="L251">                            ? OffsetDateTimeMin()</span>
+<span class="nc" id="L252">                            : java.time.OffsetDateTime.ofInstant(account.getCreatedAt(), ZoneOffset.UTC));</span>
+<span class="nc" id="L253">                    return response;</span>
                 });
     }
 
     private java.time.OffsetDateTime OffsetDateTimeMin() {
-<span class="nc" id="L267">        return java.time.OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);</span>
+<span class="nc" id="L258">        return java.time.OffsetDateTime.ofInstant(Instant.EPOCH, ZoneOffset.UTC);</span>
     }
 
     @Override
     public Mono&lt;OperationAcceptedResponse&gt; transfer(TransferRequest request, String transactionId) {
-<span class="nc" id="L272">        return transferFacade.transfer(request, transactionId);</span>
+<span class="nc" id="L263">        return transferFacade.transfer(request, transactionId);</span>
     }
 
     @Override
     public Mono&lt;AccountPage&gt; listAccounts(int page, int size) {
-<span class="nc" id="L277">        Mono&lt;List&lt;AccountResponse&gt;&gt; content = accountRepository.findAll()</span>
-<span class="nc" id="L278">                .skip((long) page * size)</span>
-<span class="nc" id="L279">                .take(size)</span>
-<span class="nc" id="L280">                .map(mapper::toResponse)</span>
-<span class="nc" id="L281">                .collectList();</span>
-<span class="nc" id="L282">        return accountRepository.count().zipWith(content)</span>
-<span class="nc" id="L283">                .map(tuple -&gt; {</span>
-<span class="nc" id="L284">                    AccountPage accountPage = new AccountPage();</span>
-<span class="nc" id="L285">                    accountPage.setContent(tuple.getT2());</span>
-<span class="nc" id="L286">                    accountPage.setPage(page);</span>
-<span class="nc" id="L287">                    accountPage.setSize(size);</span>
-<span class="nc" id="L288">                    accountPage.setTotalElements(tuple.getT1().intValue());</span>
-<span class="nc" id="L289">                    return accountPage;</span>
+<span class="nc" id="L268">        Mono&lt;List&lt;AccountResponse&gt;&gt; content = accountRepository.findAll()</span>
+<span class="nc" id="L269">                .skip((long) page * size)</span>
+<span class="nc" id="L270">                .take(size)</span>
+<span class="nc" id="L271">                .map(mapper::toResponse)</span>
+<span class="nc" id="L272">                .collectList();</span>
+<span class="nc" id="L273">        return accountRepository.count().zipWith(content)</span>
+<span class="nc" id="L274">                .map(tuple -&gt; {</span>
+<span class="nc" id="L275">                    AccountPage accountPage = new AccountPage();</span>
+<span class="nc" id="L276">                    accountPage.setContent(tuple.getT2());</span>
+<span class="nc" id="L277">                    accountPage.setPage(page);</span>
+<span class="nc" id="L278">                    accountPage.setSize(size);</span>
+<span class="nc" id="L279">                    accountPage.setTotalElements(tuple.getT1().intValue());</span>
+<span class="nc" id="L280">                    return accountPage;</span>
                 });
     }
 }

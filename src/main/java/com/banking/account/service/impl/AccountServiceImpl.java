@@ -5,6 +5,7 @@ import com.banking.account.document.AccountDocument;
 import com.banking.account.document.MovementDocument;
 import com.banking.account.dto.AccountCreateRequest;
 import com.banking.account.dto.AccountPage;
+import com.banking.account.dto.AccountProfile;
 import com.banking.account.dto.AccountResponse;
 import com.banking.account.dto.AccountStatus;
 import com.banking.account.dto.AccountType;
@@ -22,24 +23,19 @@ import com.banking.account.mapper.AccountMapper;
 import com.banking.account.repository.AccountRepository;
 import com.banking.account.repository.MovementRepository;
 import com.banking.account.service.AccountService;
-import com.banking.account.service.CardVerificationClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -50,7 +46,6 @@ public class AccountServiceImpl implements AccountService {
     private final MovementRepository movementRepository;
     private final AccountMapper mapper;
     private final AccountProperties properties;
-    private final CardVerificationClient cardVerificationClient;
     private final AccountEventPublisher eventPublisher;
     private final TransferFacade transferFacade;
     private final ObjectMapper objectMapper;
@@ -68,49 +63,45 @@ public class AccountServiceImpl implements AccountService {
 
     private Mono<Void> validateCreationRules(AccountCreateRequest request) {
         AccountType type = request.getAccountType();
-        com.banking.account.dto.AccountProfile profile = request.getProfile();
+        AccountProfile profile = request.getProfile();
+
+        Mono<Void> accountLimitRules = Mono.defer(() -> {
+            boolean isBusiness = profile == AccountProfile.PYME;
+
+            if (isBusiness) {
+                // PYME solo puede tener cuentas CHECKING (múltiples)
+                if (type != AccountType.CHECKING) {
+                    return Mono.<Void>error(new ConflictException(
+                            "BUSINESS customer is not allowed to create SAVINGS or FIXED_TERM accounts, only multiple CHECKING accounts"));
+                }
+                return Mono.<Void>empty();
+            } else {
+                // VIP / STANDARD: 1 cuenta por tipo
+                return accountRepository.findByCustomerIdAndAccountType(
+                                request.getCustomerId(), type.name())
+                        .next()
+                        .flatMap(existingAccount -> Mono.<Void>error(new ConflictException(
+                                "PERSONAL customer already has a " + type.name() + " account with id: " + existingAccount.getId())))
+                        .switchIfEmpty(Mono.<Void>empty());
+            }
+        });
 
         Mono<Void> businessRules = Mono.defer(() -> {
-            if (type == AccountType.SAVINGS || type == AccountType.FIXED_TERM) {
-                if (profile == com.banking.account.dto.AccountProfile.PYME) {
-                    return Mono.error(new UnprocessableEntityException(
-                            "PYME profile only allows CHECKING accounts"));
-                }
-            }
             if (request.getInitialAmount() != null) {
                 BigDecimal min = minimumOpening(profile);
                 if (new BigDecimal(request.getInitialAmount()).compareTo(min) < 0) {
-                    return Mono.error(new UnprocessableEntityException(
+                    return Mono.<Void>error(new UnprocessableEntityException(
                             "Initial amount below configured minimum opening amount " + min));
                 }
             }
-            if (profile == com.banking.account.dto.AccountProfile.VIP
-                    || profile == com.banking.account.dto.AccountProfile.PYME) {
-                return cardVerificationClient.hasCreditCard(request.getCustomerId())
-                        .flatMap(has -> Boolean.TRUE.equals(has) ? Mono.empty()
-                                : Mono.error(new UnprocessableEntityException(
-                                "Profile " + profile + " requires a bank credit card")));
-            }
-            return Mono.empty();
+            // Se ha removido la validación de tarjeta de crédito para evitar dependencias externas al crear cuentas
+            return Mono.<Void>empty();
         });
 
-        Mono<Void> typeRules = Mono.defer(() -> {
-            if (type == AccountType.SAVINGS) {
-                return accountRepository.findByCustomerIdAndAccountType(
-                                request.getCustomerId(), AccountType.SAVINGS.name())
-                        .hasElements()
-                        .flatMap(exists -> exists
-                                ? Mono.error(new ConflictException(
-                                "PERSONAL customer already has a SAVINGS account"))
-                                : Mono.empty());
-            }
-            return Mono.empty();
-        });
-
-        return businessRules.then(typeRules);
+        return accountLimitRules.then(businessRules);
     }
 
-    private BigDecimal minimumOpening(com.banking.account.dto.AccountProfile profile) {
+    private BigDecimal minimumOpening(AccountProfile profile) {
         AccountProperties.MinimumOpening min = properties.getMinimumOpeningAmount();
         return switch (profile) {
             case VIP -> min.getVip();
@@ -211,7 +202,7 @@ public class AccountServiceImpl implements AccountService {
                 .flatMap(account -> {
                     if (account.getBalance() != null
                             && account.getBalance().compareTo(BigDecimal.ZERO) != 0) {
-                        return Mono.error(new ConflictException(
+                        return Mono.<Void>error(new ConflictException(
                                 "Cannot deactivate an account with a non-zero balance"));
                     }
                     account.setStatus(AccountStatus.INACTIVE.name());

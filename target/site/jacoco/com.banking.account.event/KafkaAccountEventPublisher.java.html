@@ -2,12 +2,14 @@
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
-<span class="nc" id="L8">@Slf4j</span>
+<span class="nc" id="L9">@Slf4j</span>
 @Component
-<span class="nc" id="L10">@RequiredArgsConstructor</span>
+<span class="nc" id="L11">@RequiredArgsConstructor</span>
+@ConditionalOnProperty(name = &quot;banking.events.enabled&quot;, havingValue = &quot;true&quot;)
 public class KafkaAccountEventPublisher implements AccountEventPublisher {
 
     public static final String TOPIC = &quot;banking.account.events.v1&quot;;
@@ -16,8 +18,8 @@ public class KafkaAccountEventPublisher implements AccountEventPublisher {
 
     @Override
     public void publish(String eventType, String payloadJson) {
-<span class="nc" id="L19">        kafkaTemplate.send(TOPIC, eventType, payloadJson);</span>
-<span class="nc" id="L20">        log.info(&quot;Evento {} publicado en {}&quot;, eventType, TOPIC);</span>
-<span class="nc" id="L21">    }</span>
+<span class="nc" id="L21">        kafkaTemplate.send(TOPIC, eventType, payloadJson);</span>
+<span class="nc" id="L22">        log.info(&quot;Evento {} publicado en {}&quot;, eventType, TOPIC);</span>
+<span class="nc" id="L23">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
