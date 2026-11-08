@@ -76,7 +76,7 @@ public class AccountServiceImpl implements AccountService {
                 }
 <span class="nc" id="L77">                return Mono.&lt;Void&gt;empty();</span>
             } else {
-                // VIP / STANDARD: 1 cuenta por tipo
+                // VIP / STANDARD: 1 cuenta por tipo (SAVINGS, CHECKING, FIXED_TERM)
 <span class="fc" id="L80">                return accountRepository.findByCustomerIdAndAccountType(</span>
 <span class="fc" id="L81">                                request.getCustomerId(), type.name())</span>
 <span class="fc" id="L82">                        .next()</span>
@@ -94,7 +94,7 @@ public class AccountServiceImpl implements AccountService {
                             &quot;Initial amount below configured minimum opening amount &quot; + min));
                 }
             }
-            // Se ha removido la validación de tarjeta de crédito para evitar dependencias externas al crear cuentas
+            // Validación de tarjeta de crédito eliminada para evitar dependencias externas
 <span class="fc" id="L98">            return Mono.&lt;Void&gt;empty();</span>
         });
 
