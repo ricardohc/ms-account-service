@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AccountProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">ms-account-service</a> &gt; <a href="index.source.html" class="el_package">com.banking.account.config</a> &gt; <span class="el_source">AccountProperties.java</span></div><h1>AccountProperties.java</h1><pre class="source lang-java linenums">package com.banking.account.config;
+
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+
+/**
+ * Comisiones y límites configurables. Ningún valor se hardcodea.
+ */
+@Getter
+<span class="nc" id="L14">@Setter</span>
+@Component
+@ConfigurationProperties(prefix = &quot;banking.account&quot;)
+<span class="fc" id="L17">public class AccountProperties {</span>
+
+<span class="pc" id="L19">    private MinimumOpening minimumOpeningAmount = new MinimumOpening();</span>
+<span class="fc" id="L20">    private Savings savings = new Savings();</span>
+<span class="fc" id="L21">    private Checking checking = new Checking();</span>
+<span class="fc" id="L22">    private Transactions transactions = new Transactions();</span>
+
+    @Getter
+<span class="nc" id="L25">    @Setter</span>
+<span class="fc" id="L26">    public static class MinimumOpening {</span>
+<span class="pc" id="L27">        private BigDecimal standard = BigDecimal.ZERO;</span>
+<span class="pc" id="L28">        private BigDecimal vip = BigDecimal.ZERO;</span>
+<span class="pc" id="L29">        private BigDecimal pyme = BigDecimal.ZERO;</span>
+    }
+
+    @Getter
+<span class="pc" id="L33">    @Setter</span>
+<span class="fc" id="L34">    public static class Savings {</span>
+<span class="pc" id="L35">        private boolean maintenanceFeeEnabled = false;</span>
+<span class="pc" id="L36">        private BigDecimal maintenanceFeeAmount = BigDecimal.ZERO;</span>
+<span class="fc" id="L37">        private Integer maxMonthlyMovements = null;</span>
+<span class="fc" id="L38">        private BigDecimal extraMovementFee = BigDecimal.ZERO;</span>
+    }
+
+    @Getter
+<span class="nc" id="L42">    @Setter</span>
+<span class="fc" id="L43">    public static class Checking {</span>
+<span class="pc" id="L44">        private boolean maintenanceFeeEnabled = true;</span>
+<span class="pc" id="L45">        private BigDecimal maintenanceFeeAmount = BigDecimal.ZERO;</span>
+<span class="fc" id="L46">        private Integer maxMonthlyMovements = null;</span>
+<span class="pc" id="L47">        private BigDecimal extraMovementFee = BigDecimal.ZERO;</span>
+    }
+
+    @Getter
+<span class="fc" id="L51">    @Setter</span>
+<span class="fc" id="L52">    public static class Transactions {</span>
+<span class="fc" id="L53">        private int maxFreeDeposits = 0;</span>
+<span class="pc" id="L54">        private int maxFreeWithdrawals = 0;</span>
+<span class="fc" id="L55">        private BigDecimal perTransactionFee = BigDecimal.ZERO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

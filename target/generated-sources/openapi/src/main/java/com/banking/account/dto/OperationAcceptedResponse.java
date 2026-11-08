@@ -20,7 +20,7 @@ import jakarta.annotation.Generated;
  * OperationAcceptedResponse
  */
 
-@Generated(value = "org.openapitools.codegen.languages.SpringCodegen", date = "2026-11-06T11:32:44.742241-05:00[America/Lima]", comments = "Generator version: 7.6.0")
+@Generated(value = "org.openapitools.codegen.languages.SpringCodegen", date = "2026-11-08T06:34:41.436025700-05:00[America/Lima]", comments = "Generator version: 7.6.0")
 public class OperationAcceptedResponse {
 
   private UUID operationId;
