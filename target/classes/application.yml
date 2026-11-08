@@ -60,7 +60,7 @@ banking:
   card-service:
     base-url: ${CARD_SERVICE_URL:http://ms-card-service}
   transaction-service:
-    base-url: ${TRANSACTION_SERVICE_URL:http://ms-transaction-service}
+    base-url: http://localhost:8083
 
 resilience4j:
   timelimiter:

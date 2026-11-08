@@ -32,7 +32,7 @@ ms-account-service,com.banking.account.exception,GlobalExceptionHandler,152,0,6,
 ms-account-service,com.banking.account.exception,DependencyUnavailableException,6,0,0,0,2,0,1,0,1,0
 ms-account-service,com.banking.account,AccountServiceApplication,8,0,0,0,3,0,2,0,2,0
 ms-account-service,com.banking.account.service.impl,ApiCardVerificationClient,56,0,4,0,11,0,7,0,5,0
-ms-account-service,com.banking.account.service.impl,TransferFacade,268,4,14,0,52,1,16,1,9,1
+ms-account-service,com.banking.account.service.impl,TransferFacade,296,4,18,0,58,1,18,1,9,1
 ms-account-service,com.banking.account.service.impl,AccountServiceImpl,413,255,28,11,90,57,35,17,17,15
 ms-account-service,com.banking.account.service.impl,MovementFeeCalculator,15,87,6,16,3,24,5,9,0,3
 ms-account-service,com.banking.account.event,KafkaAccountEventPublisher,23,0,0,0,5,0,3,0,3,0

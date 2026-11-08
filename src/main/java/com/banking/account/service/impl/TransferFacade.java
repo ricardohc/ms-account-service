@@ -4,6 +4,7 @@ import com.banking.account.config.AccountProperties;
 import com.banking.account.document.AccountDocument;
 import com.banking.account.dto.TransferRequest;
 import com.banking.account.event.AccountEventPublisher;
+import com.banking.account.exception.BadRequestException;
 import com.banking.account.exception.ConflictException;
 import com.banking.account.exception.NotFoundException;
 import com.banking.account.repository.AccountRepository;
@@ -44,9 +45,10 @@ public class TransferFacade {
     public Mono<com.banking.account.dto.OperationAcceptedResponse> transfer(
             TransferRequest request, String transactionId) {
 
+        // 1. Validar que source y target no sean la misma cuenta (HTTP 400)
         if (request.getSourceAccountId().equals(request.getTargetAccountId())) {
-            return Mono.error(new com.banking.account.exception.UnprocessableEntityException(
-                    "sourceAccountId and targetAccountId must be different"));
+            return Mono.error(new BadRequestException(
+                    "Source account and target account cannot be the same"));
         }
 
         Mono<AccountDocument> source = accountRepository.findById(request.getSourceAccountId())
@@ -65,6 +67,17 @@ public class TransferFacade {
     private Mono<Void> validate(AccountDocument source, AccountDocument target,
                                 TransferRequest request) {
         return Mono.defer(() -> {
+            // 2. Validar FIXED_TERM (HTTP 400)
+            if ("FIXED_TERM".equals(source.getAccountType())) {
+                return Mono.error(new BadRequestException(
+                        "Source account with id " + source.getId() + " cannot be FIXED_TERM for transfers"));
+            }
+            if ("FIXED_TERM".equals(target.getAccountType())) {
+                return Mono.error(new BadRequestException(
+                        "Target account with id " + target.getId() + " cannot be FIXED_TERM for transfers"));
+            }
+
+            // 3. Validar que ambas cuentas estén ACTIVE (HTTP 409)
             if (!"ACTIVE".equals(source.getStatus())) {
                 return Mono.error(new ConflictException(
                         "Source account is " + source.getStatus()));
@@ -73,6 +86,8 @@ public class TransferFacade {
                 return Mono.error(new ConflictException(
                         "Target account is not ACTIVE"));
             }
+
+            // 4. Validar saldo suficiente en la cuenta origen (HTTP 409)
             BigDecimal amount = new BigDecimal(request.getAmount());
             if (source.getBalance() == null || source.getBalance().compareTo(amount) < 0) {
                 return Mono.error(new ConflictException("Insufficient funds"));
@@ -104,7 +119,7 @@ public class TransferFacade {
                 })
                 .onErrorResume(ex -> {
                     log.error("Error delegating to transaction-service: {}", ex.getMessage());
-                    return Mono.error(new com.banking.account.exception.ConflictException(
+                    return Mono.error(new ConflictException(
                             "Transaction Service is unavailable, transfer not accepted"));
                 });
     }
